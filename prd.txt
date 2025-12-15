@@ -1,0 +1,293 @@
+아래는 Android / iOS 로컬 LLM을 추상화하는 KMP Library에 대한 실행 가능한 수준의 PRD다.
+(ThinQ·KMP·대규모 모바일 앱 운영을 전제로 한 엔터프라이즈/플랫폼 관점으로 작성)
+
+⸻
+
+📘 PRD
+
+KMP 기반 Local LLM Abstraction Library
+
+(가칭: kmp-local-llm / ThinQ Local AI Core)
+
+⸻
+
+1. 제품 개요 (Overview)
+
+1.1 목적
+
+Android와 iOS에서 제공하는 플랫폼 네이티브 On-device LLM 기능을
+Kotlin Multiplatform(KMP) 기반의 단일 공통 API로 추상화하여:
+	•	앱/피처 레벨에서 플랫폼 분기 없는 AI 기능 개발
+	•	로컬 AI 우선(Local-first AI) 전략 구현
+	•	클라우드 LLM 의존도 감소 → 비용/지연/프라이버시 리스크 최소화
+	•	향후 Cloud LLM / Hybrid LLM 확장 기반 확보
+
+⸻
+
+1.2 해결하려는 문제
+
+문제	설명
+플랫폼별 API 파편화	Android(Gemini Nano/ML Kit), iOS(Foundation Models) API 구조가 완전히 상이
+중복 구현	요약/추천/설명 기능을 AOS/iOS 각각 구현
+기술 종속	Feature 코드가 플랫폼 LLM API에 직접 결합
+확장성 부족	Local → Cloud → Hybrid 전환 시 대규모 리팩토링 발생
+
+
+⸻
+
+2. 범위 정의 (Scope)
+
+2.1 In Scope (이번 버전)
+	•	Android Local LLM (Gemini Nano / ML Kit GenAI)
+	•	iOS Local LLM (Apple Foundation Models)
+	•	Text 기반 생성/요약/재작성
+	•	스트리밍 응답 (플랫폼 지원 범위 내)
+	•	KMP 공통 API 제공
+	•	Swift Bridge 포함
+
+2.2 Out of Scope (차기)
+	•	Vision / Multimodal Image 입력
+	•	Tool Calling / Function Calling
+	•	Fine-tuning
+	•	사용자 정의 모델 로딩
+	•	서버 기반 LLM (단, 확장 고려)
+
+⸻
+
+3. 사용자 및 이해관계자
+
+3.1 주요 사용자
+	•	ThinQ Android / iOS 앱 개발자
+	•	KMP Core / Feature 모듈 개발자
+	•	AI UX / Smart Home Feature 기획자
+
+3.2 이해관계자
+	•	Mobile Platform Lead
+	•	AI/AX 조직
+	•	보안 / 개인정보 조직
+	•	품질(QA) 조직
+
+⸻
+
+4. 아키텍처 목표
+
+4.1 설계 원칙
+	1.	Platform Agnostic
+	•	공통 API에 Android/iOS 용어 노출 금지
+	2.	Local-first
+	•	기본 실행은 항상 On-device
+	3.	Capability-based
+	•	플랫폼별 지원 기능을 명시적으로 표현
+	4.	Fail-safe
+	•	모델 미지원/비활성 상태에서도 앱 안정성 보장
+	5.	확장 가능
+	•	Cloud LLM, Hybrid 구조 확장 가능
+
+⸻
+
+5. 모듈 구조
+
+core_llm/
+ ├─ commonMain/
+ │   ├─ api/
+ │   │   ├─ LocalLlmClient.kt
+ │   │   ├─ LlmRequest.kt
+ │   │   ├─ LlmResponse.kt
+ │   │   ├─ LlmCapability.kt
+ │   │   └─ LlmError.kt
+ │   ├─ factory/
+ │   │   └─ LocalLlmClientFactory.kt
+ │   └─ metrics/
+ │       └─ LlmMetrics.kt
+ │
+ ├─ androidMain/
+ │   └─ AndroidLocalLlmClient.kt   (ML Kit GenAI)
+ │
+ ├─ iosMain/
+ │   └─ IosLocalLlmClient.kt       (Swift Bridge 호출)
+ │
+ └─ appleBridge/
+     └─ AppleLocalLlmBridge.swift
+
+
+⸻
+
+6. 공통 API 설계
+
+6.1 Core Interface
+
+interface LocalLlmClient {
+
+    suspend fun generateText(
+        request: LlmRequest
+    ): LlmResponse
+
+    fun streamText(
+        request: LlmRequest
+    ): Flow<String>
+
+    val capabilities: Set<LlmCapability>
+}
+
+
+⸻
+
+6.2 Request / Response 모델
+
+data class LlmRequest(
+    val prompt: String,
+    val systemInstruction: String? = null,
+    val maxTokens: Int = 512,
+    val temperature: Double = 0.7,
+    val metadata: Map<String, String> = emptyMap()
+)
+
+data class LlmResponse(
+    val text: String,
+    val usage: TokenUsage? = null,
+    val raw: Any? = null
+)
+
+
+⸻
+
+6.3 Capability 모델
+
+enum class LlmCapability {
+    TEXT_GENERATION,
+    SUMMARIZATION,
+    REWRITING,
+    PROOFREADING,
+    STREAMING
+}
+
+→ Feature 코드에서 capabilities.contains(...) 기반 분기 가능
+
+⸻
+
+6.4 Error 모델
+
+sealed class LlmError : Exception() {
+    class ModelNotAvailable : LlmError()
+    class PermissionDenied : LlmError()
+    class SafetyBlocked : LlmError()
+    class Internal : LlmError()
+}
+
+
+⸻
+
+7. 플랫폼별 구현 전략
+
+7.1 Android
+
+항목	내용
+엔진	Gemini Nano (AICore)
+API	ML Kit GenAI (Prompt/Summarization)
+언어	Kotlin
+스트리밍	제한적 / 미지원 → 단일 emit
+토큰 제어	제한적 (ML Kit 내부 정책)
+
+책임
+	•	모델 다운로드/가용성 체크
+	•	Safety 예외 매핑
+	•	백그라운드 실행 제한 대응
+
+⸻
+
+7.2 iOS
+
+항목	내용
+엔진	Apple Foundation Models
+API	LanguageModelSession
+언어	Swift + KMM interop
+스트리밍	AsyncSequence 기반
+토큰 제어	옵션으로 지원
+
+책임
+	•	Swift Bridge 제공
+	•	세션 수명 관리
+	•	Apple Intelligence 비활성 상태 처리
+
+⸻
+
+8. Swift Bridge 요구사항
+
+8.1 역할
+	•	Foundation Models API 캡슐화
+	•	ObjC compatible API 제공
+	•	async/streaming → callback 변환
+
+8.2 필수 API
+
+prepare()
+generate(prompt, maxTokens, temperature)
+generateStream(prompt, onChunk)
+
+
+⸻
+
+9. 비기능 요구사항 (NFR)
+
+9.1 성능
+	•	평균 응답 지연 < 1.5s (요약 200 tokens 기준)
+	•	UI thread blocking 금지
+
+9.2 안정성
+	•	모델 미지원 단말에서 graceful failure
+	•	앱 crash zero tolerance
+
+9.3 보안/프라이버시
+	•	사용자 입력/출력 데이터 외부 전송 금지
+	•	로그에 prompt/response 원문 저장 금지 (옵션화)
+
+⸻
+
+10. Metrics & Observability
+
+10.1 수집 항목 (선택)
+	•	요청 성공/실패율
+	•	평균 응답 시간
+	•	모델 가용성 비율
+	•	capability별 사용 빈도
+
+interface LlmMetricsReporter {
+    fun onRequestStart()
+    fun onRequestSuccess(durationMs: Long)
+    fun onRequestFailure(error: LlmError)
+}
+
+
+⸻
+
+11. 확장 계획 (vNext)
+
+항목	설명
+CloudLlmClient	OpenAI/Gemini API
+HybridLlmClient	Local 실패 시 Cloud fallback
+Prompt Template Engine	공통 프롬프트 관리
+Safety Policy Layer	정책 기반 응답 필터
+Multimodal	Image + Text
+
+
+⸻
+
+12. 성공 지표 (KPI)
+
+결과 KPI
+	•	AI Feature 공통 코드 비율 ≥ 80%
+	•	Android/iOS AI 기능 출시 리드타임 30%↓
+	•	Cloud LLM 호출 비용 절감
+
+과정 KPI
+	•	KMP Feature에서 플랫폼 분기 제거율
+	•	Local LLM 성공 호출률
+	•	평균 응답 시간 추이
+
+⸻
+
+13. 전략적 가치
+	•	ThinQ KMP Core의 핵심 차별화 자산
+	•	“On-device AI SDK”로 내부 재사용 가능
+	•	향후 AI UX / Agentic UX의 기반 레이어
+	•	외주/플랫폼 종속 최소화

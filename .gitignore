@@ -1,0 +1,25 @@
+# Gradle
+.gradle/
+build/
+gradle-app.setting
+!gradle-wrapper.jar
+!gradle-wrapper.properties
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+local.properties
+
+# KMP
+*.framework/
+*.dSYM/
+
+# Android
+*.apk
+*.aab
+*.dex
+captures/
+
+# Kotlin
+*.kotlin_module
