@@ -39,8 +39,8 @@ kotlin {
         val androidMain by getting {
             dependencies {
                 implementation("androidx.core:core-ktx:1.12.0")
-                // ML Kit GenAI will be added here
-                // implementation("com.google.mlkit:generative-ai:0.1.0")
+                // Google AI Client SDK for Gemini (includes on-device support)
+                implementation("com.google.ai.client.generativeai:generativeai:0.1.2")
             }
         }
 

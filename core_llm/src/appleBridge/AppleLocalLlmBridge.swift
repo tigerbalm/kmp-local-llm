@@ -7,49 +7,55 @@ import LanguageModels
 /// Bridge between KMP and Apple Foundation Models API
 /// Provides ObjC-compatible interface for Kotlin interop
 @objc public class AppleLocalLlmBridge: NSObject {
-    
+
     #if canImport(LanguageModels)
+    @available(iOS 18.1, *)
     private var session: LanguageModelSession?
     #endif
-    
+
     private let maxTokens: Int
     private let temperature: Double
-    
+
     @objc public init(maxTokens: Int = 512, temperature: Double = 0.7) {
         self.maxTokens = maxTokens
         self.temperature = temperature
         super.init()
     }
-    
+
     /// Check if Apple Intelligence and Foundation Models are available
     @objc public func isAvailable() -> Bool {
         #if canImport(LanguageModels)
         if #available(iOS 18.1, *) {
             // Check if LanguageModels framework is available
+            // In practice, also check if Apple Intelligence is enabled
             return true
         }
         #endif
         return false
     }
-    
+
     /// Prepare the LLM session
     @objc public func prepare(completion: @escaping (NSError?) -> Void) {
         #if canImport(LanguageModels)
         if #available(iOS 18.1, *) {
-            do {
-                // Initialize LanguageModelSession
-                // Note: Actual implementation depends on Apple's API
-                // session = try LanguageModelSession()
-                completion(nil)
-            } catch {
-                let nsError = error as NSError
-                completion(nsError)
+            Task {
+                do {
+                    // Initialize LanguageModelSession
+                    self.session = try await LanguageModelSession()
+                    DispatchQueue.main.async {
+                        completion(nil)
+                    }
+                } catch {
+                    DispatchQueue.main.async {
+                        completion(error as NSError)
+                    }
+                }
             }
         } else {
             let error = NSError(
                 domain: "AppleLocalLlmBridge",
                 code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "iOS 18.1+ required"]
+                userInfo: [NSLocalizedDescriptionKey: "iOS 18.1+ required for Apple Intelligence"]
             )
             completion(error)
         }
@@ -62,7 +68,7 @@ import LanguageModels
         completion(error)
         #endif
     }
-    
+
     /// Generate text from prompt (non-streaming)
     @objc public func generate(
         prompt: String,
@@ -73,15 +79,32 @@ import LanguageModels
         if #available(iOS 18.1, *) {
             Task {
                 do {
-                    // Apple Foundation Models API call
-                    // Example (pseudo-code - actual API may differ):
-                    // let response = try await session?.generate(prompt: prompt)
-                    
-                    // Mock response for now
-                    let mockResponse = "[iOS Mock] Response to: \(prompt.prefix(50))..."
-                    
+                    // Ensure session is prepared
+                    if self.session == nil {
+                        self.session = try await LanguageModelSession()
+                    }
+
+                    guard let session = self.session else {
+                        throw NSError(
+                            domain: "AppleLocalLlmBridge",
+                            code: 3,
+                            userInfo: [NSLocalizedDescriptionKey: "Session not initialized"]
+                        )
+                    }
+
+                    // Build full prompt with system instruction
+                    let fullPrompt: String
+                    if let systemInstruction = systemInstruction {
+                        fullPrompt = systemInstruction + "\n\n" + prompt
+                    } else {
+                        fullPrompt = prompt
+                    }
+
+                    // Generate response using Apple's Language Model
+                    let response = try await session.generateText(from: fullPrompt)
+
                     DispatchQueue.main.async {
-                        completion(mockResponse, nil)
+                        completion(response, nil)
                     }
                 } catch {
                     DispatchQueue.main.async {
@@ -93,7 +116,7 @@ import LanguageModels
             let error = NSError(
                 domain: "AppleLocalLlmBridge",
                 code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "iOS 18.1+ required"]
+                userInfo: [NSLocalizedDescriptionKey: "iOS 18.1+ required for Apple Intelligence"]
             )
             completion(nil, error)
         }
@@ -106,7 +129,7 @@ import LanguageModels
         completion(nil, error)
         #endif
     }
-    
+
     /// Generate text with streaming (callback for each chunk)
     @objc public func generateStream(
         prompt: String,
@@ -118,23 +141,34 @@ import LanguageModels
         if #available(iOS 18.1, *) {
             Task {
                 do {
-                    // Apple Foundation Models streaming API
-                    // Example (pseudo-code):
-                    // for try await chunk in session?.generateStream(prompt: prompt) {
-                    //     DispatchQueue.main.async {
-                    //         onChunk(chunk)
-                    //     }
-                    // }
-                    
-                    // Mock streaming response
-                    let words = "[iOS Stream] This is a streaming response.".split(separator: " ")
-                    for word in words {
-                        try await Task.sleep(nanoseconds: 100_000_000) // 0.1s delay
+                    // Ensure session is prepared
+                    if self.session == nil {
+                        self.session = try await LanguageModelSession()
+                    }
+
+                    guard let session = self.session else {
+                        throw NSError(
+                            domain: "AppleLocalLlmBridge",
+                            code: 3,
+                            userInfo: [NSLocalizedDescriptionKey: "Session not initialized"]
+                        )
+                    }
+
+                    // Build full prompt with system instruction
+                    let fullPrompt: String
+                    if let systemInstruction = systemInstruction {
+                        fullPrompt = systemInstruction + "\n\n" + prompt
+                    } else {
+                        fullPrompt = prompt
+                    }
+
+                    // Stream response using Apple's Language Model
+                    for try await chunk in session.generateTextStream(from: fullPrompt) {
                         DispatchQueue.main.async {
-                            onChunk(String(word) + " ")
+                            onChunk(chunk)
                         }
                     }
-                    
+
                     DispatchQueue.main.async {
                         onComplete(nil)
                     }
@@ -148,7 +182,7 @@ import LanguageModels
             let error = NSError(
                 domain: "AppleLocalLlmBridge",
                 code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "iOS 18.1+ required"]
+                userInfo: [NSLocalizedDescriptionKey: "iOS 18.1+ required for Apple Intelligence"]
             )
             onComplete(error)
         }
@@ -159,6 +193,15 @@ import LanguageModels
             userInfo: [NSLocalizedDescriptionKey: "LanguageModels framework not available"]
         )
         onComplete(error)
+        #endif
+    }
+
+    /// Cleanup and release resources
+    @objc public func cleanup() {
+        #if canImport(LanguageModels)
+        if #available(iOS 18.1, *) {
+            session = nil
+        }
         #endif
     }
 }
