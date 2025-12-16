@@ -94,8 +94,4 @@ class MetricsEnabledLlmClient(
             }
     }
     
-    private fun currentTimeMillis(): Long {
-        // Platform-agnostic time measurement
-        return kotlin.system.getTimeMillis()
-    }
 }

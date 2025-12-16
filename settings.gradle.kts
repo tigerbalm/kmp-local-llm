@@ -16,3 +16,5 @@ dependencyResolutionManagement {
 }
 
 include(":core_llm")
+include(":sampleShared")
+include(":androidApp")
