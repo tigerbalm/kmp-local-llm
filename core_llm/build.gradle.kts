@@ -12,6 +12,14 @@ kotlin {
         }
     }
 
+    jvm {
+        compilations.all {
+            kotlinOptions {
+                jvmTarget = "17"
+            }
+        }
+    }
+
     listOf(
         iosX64(),
         iosArm64(),
@@ -42,6 +50,10 @@ kotlin {
                 // Google AI Client SDK for Gemini (includes on-device support)
                 implementation("com.google.ai.client.generativeai:generativeai:0.1.2")
             }
+        }
+
+        val jvmMain by getting {
+            dependsOn(commonMain)
         }
 
         val iosX64Main by getting

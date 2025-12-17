@@ -12,6 +12,14 @@ kotlin {
         }
     }
 
+    jvm {
+        compilations.all {
+            kotlinOptions {
+                jvmTarget = "17"
+            }
+        }
+    }
+
     listOf(
         iosX64(),
         iosArm64(),
@@ -42,6 +50,10 @@ kotlin {
                 implementation("androidx.core:core-ktx:1.12.0")
                 implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.2")
             }
+        }
+
+        val jvmMain by getting {
+            dependsOn(commonMain)
         }
 
         val iosX64Main by getting

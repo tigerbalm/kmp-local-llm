@@ -23,3 +23,8 @@ captures/
 
 # Kotlin
 *.kotlin_module
+
+# Development Tools
+.claude/
+.serena/
+.mcp.json
